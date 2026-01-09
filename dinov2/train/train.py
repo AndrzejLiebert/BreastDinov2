@@ -13,7 +13,17 @@ from fvcore.common.checkpoint import PeriodicCheckpointer
 import torch
 
 from dinov2.data import SamplerType, make_data_loader, make_dataset
-from dinov2.data import collate_data_and_cast, DataAugmentationDINO, CellAugmentationDINO, MaskingGenerator
+from dinov2.data import (
+    collate_data_and_cast,
+    DataAugmentationDINO,
+    CellAugmentationDINO,
+    MaskingGenerator,
+)
+# Import MRI augmentation if available. It lives in dinov2.data.augmentations_mri
+try:
+    from dinov2.data.augmentations_mri import MRIDataAugmentationDINO  # type: ignore
+except Exception:
+    MRIDataAugmentationDINO = None  # will be checked at runtime
 import dinov2.distributed as distributed
 from dinov2.fsdp import FSDPCheckpointer
 from dinov2.logging import MetricLogger
@@ -172,7 +182,21 @@ def do_train(cfg, model, resume=False):
         max_num_patches=0.5 * img_size // patch_size * img_size // patch_size,
     )
 
-    if cfg.train.cell_augmentation:
+    # choose augmentation pipeline based on configuration. MRI augmentation
+    # supersedes cell_augmentation and default augmentations if requested.
+    if getattr(cfg.train, "mri_augmentation", False):
+        if MRIDataAugmentationDINO is None:
+            raise RuntimeError(
+                "MRI augmentation requested but MRIDataAugmentationDINO could not be imported."
+            )
+        data_transform = MRIDataAugmentationDINO(
+            cfg.crops.global_crops_scale,
+            cfg.crops.local_crops_scale,
+            cfg.crops.local_crops_number,
+            global_crops_size=cfg.crops.global_crops_size,
+            local_crops_size=cfg.crops.local_crops_size,
+        )
+    elif cfg.train.cell_augmentation:
         data_transform = CellAugmentationDINO(
             cfg.crops.global_crops_scale,
             cfg.crops.local_crops_scale,

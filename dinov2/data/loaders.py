@@ -42,16 +42,41 @@ def _make_sample_transform(image_transform: Optional[Callable] = None, target_tr
 
 
 def _parse_dataset_str(dataset_str: str):
+    """
+    Parse a dataset description string into a dataset class and keyword arguments.
+
+    The input syntax is a colon separated list of ``KEY=VALUE`` pairs following
+    the dataset name. For example:
+
+        ImageNet:split=TRAIN:root=/data/imagenet
+
+    For custom datasets additional keywords may be defined. This function
+    validates and converts those keywords where appropriate.
+    """
     tokens = dataset_str.split(":")
 
     name = tokens[0]
     kwargs = {}
 
+    # allowed parameters across all datasets. Additional keys will be
+    # explicitly handled below for custom datasets.
+    allowed_common_keys = {"root", "extra", "split", "mode", "wildcard"}
+
     for token in tokens[1:]:
-        key, value = token.split("=")
-        assert key in ("root", "extra", "split", "mode", "wildcard")
+        if "=" not in token:
+            raise ValueError(f"Dataset option '{token}' must be of the form KEY=VALUE")
+        key, value = token.split("=", 1)
+
+        # accept additional keys for BreastDividerSlices
+        if name == "BreastDividerSlices" and key in {"axis", "mask_threshold"}:
+            kwargs[key] = value
+            continue
+
+        if key not in allowed_common_keys:
+            raise ValueError(f"Unsupported dataset option '{key}' for dataset '{name}'")
         kwargs[key] = value
 
+    # map dataset names to classes
     if name == "ImageNet":
         class_ = ImageNet
         if "split" in kwargs:
@@ -68,6 +93,19 @@ def _parse_dataset_str(dataset_str: str):
         class_ = CHAMMI_WTC
     elif name == "CHAMMI_HPA":
         class_ = CHAMMI_HPA
+    elif name == "BreastDividerSlices":
+        from .datasets import BreastDividerSlices  # type: ignore
+        class_ = BreastDividerSlices
+        # convert axis and mask_threshold to correct types if provided
+        if "axis" in kwargs:
+            kwargs["axis"] = int(kwargs["axis"])
+        if "mask_threshold" in kwargs:
+            try:
+                kwargs["mask_threshold"] = float(kwargs["mask_threshold"])
+            except ValueError:
+                raise ValueError(
+                    f"mask_threshold must be a float between 0 and 1, got {kwargs['mask_threshold']}"
+                )
     else:
         raise ValueError(f'Unsupported dataset "{name}"')
 

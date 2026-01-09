@@ -1,0 +1,75 @@
+"""
+Configuration for training DINOv2 on the BreastDivider dataset using 2D slices.
+
+This configuration adapts the DINOv2 self‑supervised training pipeline to
+single‑channel medical images. It uses a Vision Transformer with one input
+channel and an augmentation pipeline tailored to MRI slices. The dataset is
+referenced via the ``train.dataset_path`` entry and must point to the root of
+the downloaded BreastDivider dataset. A slice axis and mask coverage threshold
+are specified directly in the dataset string.
+
+You should override ``train.dataset_path`` on the command line to point to your
+local data location, for example::
+
+    --config-file dinov2/configs/train/breast_divider.yaml \\
+    train.dataset_path="BreastDividerSlices:root=/scratch/data/BreastDividerDataset:axis=2:mask_threshold=0.1" 
+
+The ``train.mri_augmentation`` flag activates the medical image augmentation
+pipeline defined in ``dinov2/data/augmentations_mri.py``.
+"""
+
+train:
+  dataset_path: BreastDividerSlices:root=/path/to/BreastDividerDataset:axis=2:mask_threshold=0.1
+  batch_size_per_gpu: 16
+  OFFICIAL_EPOCH_LENGTH: 5000
+  mri_augmentation: true
+  channel_adaptive: false
+  centering: sinkhorn_knopp
+  output_dir: outputs/breast_divider_pretrain
+
+student:
+  arch: vit_large
+  patch_size: 16
+  in_chans: 1
+  drop_path_rate: 0.1
+  block_chunks: 4
+
+teacher:
+  momentum_teacher: 0.996
+  warmup_teacher_temp_epochs: 20
+  warmup_teacher_temp: 0.04
+  teacher_temp: 0.07
+  final_momentum_teacher: 1.0
+  in_chans: 1
+
+crops:
+  global_crops_scale:
+    - 0.4
+    - 1.0
+  local_crops_number: 8
+  local_crops_scale:
+    - 0.05
+    - 0.4
+  global_crops_size: 224
+  local_crops_size: 96
+
+optim:
+  # base learning rate is scaled by batch size; this value corresponds to a
+  # batch size of 1024 images (16 per GPU × 64 GPUs). Adjust accordingly if
+  # using fewer GPUs.
+  base_lr: 5.0e-4
+  lr: 5.0e-4
+  min_lr: 1.0e-5
+  weight_decay: 0.04
+  weight_decay_end: 0.2
+  warmup_epochs: 20
+  epochs: 400
+  layerwise_decay: 1.0
+
+ibot:
+  # masking ratio for iBOT objectives; keep default values
+  mask_ratio_min_max: [0.1, 0.5]
+  mask_sample_probability: 1.0
+
+evaluation:
+  eval_period_iterations: 10000
